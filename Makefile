@@ -1,17 +1,16 @@
-.PHONY: default
-default:
-
-# host targets
-
-.PHONY: docker
-docker:
-	docker/build.sh
+.PHONY: all
+all: build-deps build
 
 .PHONY: clean
 clean:
-	@rm -rf build
+	@rm -rf build main git-report
 
-# container targets
+.PHONY: build-deps
+build-deps:
+	@go get github.com/mattn/go-sqlite3
+	@go get gopkg.in/yaml.v3
 
-.PHONY: all
-all:
+.PHONY: build
+build:
+	@mkdir -vp build
+	@CGO_ENABLED=1 go build -o build/git-report main.go

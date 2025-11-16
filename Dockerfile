@@ -11,7 +11,7 @@ ENV HOME=/root
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-ENV APT_INSTALL='bash openssl ca-certificates media-types less wget golang python3 python3-venv git'
+ENV APT_INSTALL='bash openssl ca-certificates media-types less wget golang python3 python3-venv git build-essential'
 
 RUN apt-get clean \
 	&& apt-get update -yy \
