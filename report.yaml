@@ -1,0 +1,6 @@
+---
+output: report.db
+
+repositories:
+  - name: git-report
+    path: .
