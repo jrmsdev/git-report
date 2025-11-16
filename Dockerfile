@@ -11,7 +11,7 @@ ENV HOME=/root
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-ENV APT_INSTALL='bash openssl ca-certificates media-types less wget golang'
+ENV APT_INSTALL='bash openssl ca-certificates media-types less wget golang python3 python3-venv git'
 
 RUN apt-get clean \
 	&& apt-get update -yy \
@@ -48,5 +48,12 @@ ENV USER=devel
 ENV HOME=/home/devel
 
 RUN go version
+RUN python3 --version
+
+RUN python3 -m venv ~/venv
+RUN ~/venv/bin/pip install pipx
+RUN ~/venv/bin/pipx install datasette
+
+RUN ~/.local/bin/datasette --version
 
 ENTRYPOINT ["/usr/local/bin/user-login.sh"]
