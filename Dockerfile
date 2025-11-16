@@ -51,9 +51,8 @@ RUN go version
 RUN python3 --version
 
 RUN python3 -m venv ~/venv
-RUN ~/venv/bin/pip install pipx
-RUN ~/venv/bin/pipx install datasette
+RUN ~/venv/bin/pip install datasette
 
-RUN ~/.local/bin/datasette --version
+RUN ~/venv/bin/datasette --version
 
 ENTRYPOINT ["/usr/local/bin/user-login.sh"]
