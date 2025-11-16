@@ -23,6 +23,11 @@ RUN apt-get clean \
 		/var/cache/apt/archives/*.deb \
 		/var/cache/apt/*cache.bin
 
+RUN python3 -m venv /usr/local/venv
+
+RUN /usr/local/venv/bin/pip install datasette
+RUN ln -vsf /usr/local/venv/bin/datasette /usr/local/bin/datasette
+
 ARG DEVEL_UID=1000
 ARG DEVEL_GID=1000
 
@@ -34,7 +39,7 @@ RUN groupadd -o -g ${DEVEL_GID} devel \
 	&& chmod -v 0750 /home/devel
 
 RUN printf 'umask %s\n' '027' >>/home/devel/.profile
-RUN printf "export PS1='%s '\n" '\u@\h:\W\$' >>/home/devel/.profile
+#RUN printf "export PS1='%s '\n" '\u@\h:\W\$' >>/home/devel/.profile
 
 COPY ./docker/user-login.sh /usr/local/bin/user-login.sh
 RUN chmod -v 0755 /usr/local/bin/user-login.sh
@@ -50,9 +55,7 @@ ENV HOME=/home/devel
 RUN go version
 RUN python3 --version
 
-RUN python3 -m venv ~/venv
-RUN ~/venv/bin/pip install datasette
 
-RUN ~/venv/bin/datasette --version
+RUN datasette --version
 
 ENTRYPOINT ["/usr/local/bin/user-login.sh"]
