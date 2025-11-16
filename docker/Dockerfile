@@ -41,7 +41,7 @@ RUN groupadd -o -g ${DEVEL_GID} devel \
 RUN printf 'umask %s\n' '027' >>/home/devel/.profile
 #RUN printf "export PS1='%s '\n" '\u@\h:\W\$' >>/home/devel/.profile
 
-COPY ./docker/user-login.sh /usr/local/bin/user-login.sh
+COPY ./user-login.sh /usr/local/bin/user-login.sh
 RUN chmod -v 0755 /usr/local/bin/user-login.sh
 
 RUN install -v -m 0750 -o devel -g devel -d /opt/src
