@@ -1,10 +1,13 @@
 # git-report: Git Repository Contribution Report Tool
 
 ## Overview
-A command-line tool written in Go that parses `git log` output and generates a SQLite database for querying repository contributions via Datasette.
+A command-line tool written in Go that parses `git log` output and generates a
+SQLite database for querying repository contributions via Datasette.
 
 ## Purpose
-Generate contributor reports by analyzing git history, including commit metadata and file change patterns to track contributions to specific parts of a repository.
+Generate contributor reports by analyzing git history, including commit metadata
+and file change patterns to track contributions to specific parts of a
+repository.
 
 ## Architecture
 
@@ -17,7 +20,8 @@ Generate contributor reports by analyzing git history, including commit metadata
 ### Technology Stack
 - **Language**: Go (for performance and single-binary distribution)
 - **Database**: SQLite3
-- **Query/Visualization**: Datasette (separate tool, consumes generated .db file)
+- **Query/Visualization**: Datasette (separate tool, consumes generated .db
+  file)
 
 ## Database Schema
 
@@ -34,7 +38,8 @@ Generate contributor reports by analyzing git history, including commit metadata
 - `filepath` (TEXT): path to changed file
 - `additions` (INTEGER): lines added
 - `deletions` (INTEGER): lines deleted
-- `change_type` (TEXT): 'A' (added), 'M' (modified), 'D' (deleted), 'R' (renamed)
+- `change_type` (TEXT): 'A' (added), 'M' (modified), 'D' (deleted),
+  'R' (renamed)
 
 ### Optional: `patterns` or `components` table
 Pre-categorized path patterns for common query scenarios (can be added later)
