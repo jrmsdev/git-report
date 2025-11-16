@@ -11,6 +11,12 @@ build-deps:
 	@go get gopkg.in/yaml.v3
 
 .PHONY: build
-build:
+build: build/git-report
+
+build/git-report: main.go
 	@mkdir -vp build
 	@CGO_ENABLED=1 go build -o build/git-report main.go
+
+.PHONY: run
+run: build
+	@build/git-report

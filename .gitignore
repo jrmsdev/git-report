@@ -1,3 +1,5 @@
+*.db
+
 /build
 /main
 /git-report
