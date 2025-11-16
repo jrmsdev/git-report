@@ -5,4 +5,5 @@ exec docker run -it --rm -u devel \
 	--hostname git-report.local \
 	-v "${PWD}:/opt/src:ro" \
 	--workdir /opt/src \
+    -p 127.0.0.1:8001:8001 \
 	jrmsdev/git-report
