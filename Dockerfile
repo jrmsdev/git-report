@@ -59,8 +59,8 @@ RUN datasette --version
 
 WORKDIR /opt/src
 
-COPY --chmod=0644 go.mod go.sum Makefile /opt/src
-RUN make build-deps
+COPY --chmod=0644 go.mod go.sum Makefile main.go /opt/src
+RUN make install
 
 WORKDIR /home/devel
 

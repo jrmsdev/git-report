@@ -17,6 +17,10 @@ build/git-report: main.go
 	@mkdir -vp build
 	@CGO_ENABLED=1 go build -o build/git-report main.go
 
+.PHONY: install
+install:
+	@CGO_ENABLED=1 go install
+
 .PHONY: run
 run: build
 	@build/git-report
