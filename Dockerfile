@@ -41,7 +41,7 @@ RUN groupadd -o -g ${DEVEL_GID} devel \
 RUN printf 'umask %s\n' '027' >>/home/devel/.profile
 #RUN printf "export PS1='%s '\n" '\u@\h:\W\$' >>/home/devel/.profile
 
-COPY ./user-login.sh /usr/local/bin/user-login.sh
+COPY docker/user-login.sh /usr/local/bin/user-login.sh
 RUN chmod -v 0755 /usr/local/bin/user-login.sh
 
 RUN install -v -m 0750 -o devel -g devel -d /opt/src
@@ -55,7 +55,13 @@ ENV HOME=/home/devel
 RUN go version
 RUN python3 --version
 
-
 RUN datasette --version
+
+WORKDIR /opt/src
+
+COPY --chmod=0644 go.mod go.sum Makefile /opt/src
+RUN make build-deps
+
+WORKDIR /home/devel
 
 ENTRYPOINT ["/usr/local/bin/user-login.sh"]

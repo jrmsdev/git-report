@@ -6,4 +6,5 @@ exec docker run -it --rm -u devel \
 	-v "${PWD}:/opt/src" \
 	--workdir /opt/src \
     -p 127.0.0.1:8001:8001 \
+	-e "TERM=${TERM}" \
 	jrmsdev/git-report
