@@ -134,7 +134,7 @@ func main() {
 		}
 	}
 
-	if err := computeComponentContributions(db, config.Components, config.Repositories, repoIDs); err != nil {
+	if err := computeComponentContributions(db, config.Components, config.Repositories, repoIDs, isVerbose); err != nil {
 		log.Fatalf("Failed to compute component contributions: %v", err)
 	}
 
@@ -266,7 +266,7 @@ func insertComponents(db *sql.DB, components []Component) error {
 }
 
 func processRepository(db *sql.DB, repo Repository, repoID int, filters Filters, verbose bool) error {
-	args := []string{"log", "--numstat", "--name-status", "--pretty=format:%H%x00%an%x00%ae%x00%ai%x00%s%x00"}
+	args := []string{"log", "--numstat", "--pretty=format:%H%x00%an%x00%ae%x00%ai%x00%s%x00"}
 
 	if filters.Since != "" {
 		args = append(args, fmt.Sprintf("--since=%s", filters.Since))
@@ -355,27 +355,39 @@ func parseGitLog(db *sql.DB, output string, repoID int, verbose bool) error {
 		}
 
 		parts := strings.Fields(line)
-		if len(parts) < 2 {
+		if len(parts) < 3 {
 			continue
 		}
 
-		if len(parts) == 3 {
-			adds, _ := strconv.Atoi(parts[0])
-			dels, _ := strconv.Atoi(parts[1])
-			filepath := parts[2]
+		adds, errAdds := strconv.Atoi(parts[0])
+		dels, errDels := strconv.Atoi(parts[1])
 
-			changeType := "M"
-			_, err := fileStmt.Exec(currentCommit.Hash, filepath, adds, dels, changeType)
-			if err != nil {
-				return err
+		// Skip binary files (marked as "-" in numstat)
+		if errAdds != nil || errDels != nil {
+			continue
+		}
+
+		// Handle renames: "0	0	old.txt => new.txt"
+		// For renames, we want the new filename
+		filepath := parts[2]
+		changeType := "M"
+
+		if len(parts) >= 5 && parts[3] == "=>" {
+			// This is a rename
+			filepath = parts[4]
+			changeType = "R"
+		} else {
+			// Determine change type from the stats
+			if adds > 0 && dels == 0 {
+				changeType = "A"
+			} else if adds == 0 && dels > 0 {
+				changeType = "D"
 			}
-		} else if len(parts) == 2 {
-			changeType := parts[0]
-			filepath := parts[1]
-			_, err := fileStmt.Exec(currentCommit.Hash, filepath, 0, 0, changeType)
-			if err != nil {
-				return err
-			}
+		}
+
+		_, err := fileStmt.Exec(currentCommit.Hash, filepath, adds, dels, changeType)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -386,7 +398,7 @@ func parseGitLog(db *sql.DB, output string, repoID int, verbose bool) error {
 	return tx.Commit()
 }
 
-func computeComponentContributions(db *sql.DB, components []Component, repos []Repository, repoIDs map[string]int) error {
+func computeComponentContributions(db *sql.DB, components []Component, repos []Repository, repoIDs map[string]int, verbose bool) error {
 	type contribKey struct {
 		componentID  int
 		repositoryID int
@@ -395,7 +407,7 @@ func computeComponentContributions(db *sql.DB, components []Component, repos []R
 
 	contributions := make(map[contribKey]struct {
 		author    string
-		commits   int
+		commits   map[string]bool
 		additions int
 		deletions int
 	})
@@ -424,6 +436,10 @@ func computeComponentContributions(db *sql.DB, components []Component, repos []R
 				continue
 			}
 
+			if verbose {
+				log.Printf("Component '%s': checking repo '%s' with patterns: %v", comp.Name, repoName, repoPatterns)
+			}
+
 			rows, err := db.Query(`
 				SELECT c.hash, c.author, c.email, fc.additions, fc.deletions, fc.filepath
 				FROM commits c
@@ -434,6 +450,7 @@ func computeComponentContributions(db *sql.DB, components []Component, repos []R
 				return err
 			}
 
+			matchCount := 0
 			for rows.Next() {
 				var hash, author, email, filepath string
 				var additions, deletions int
@@ -446,6 +463,10 @@ func computeComponentContributions(db *sql.DB, components []Component, repos []R
 				for _, pattern := range repoPatterns {
 					if matchPath(filepath, pattern) {
 						matched = true
+						if verbose && matchCount < 5 {
+							log.Printf("  MATCH: %s matches pattern %s", filepath, pattern)
+							matchCount++
+						}
 						break
 					}
 				}
@@ -454,7 +475,10 @@ func computeComponentContributions(db *sql.DB, components []Component, repos []R
 					key := contribKey{componentID, repoID, email}
 					contrib := contributions[key]
 					contrib.author = author
-					contrib.commits++
+					if contrib.commits == nil {
+						contrib.commits = make(map[string]bool)
+					}
+					contrib.commits[hash] = true
 					contrib.additions += additions
 					contrib.deletions += deletions
 					contributions[key] = contrib
@@ -482,105 +506,69 @@ func computeComponentContributions(db *sql.DB, components []Component, repos []R
 
 	for key, contrib := range contributions {
 		_, err := stmt.Exec(key.componentID, key.repositoryID, contrib.author, key.email,
-			contrib.commits, contrib.additions, contrib.deletions)
+			len(contrib.commits), contrib.additions, contrib.deletions)
 		if err != nil {
 			return err
 		}
+	}
+
+	if verbose {
+		log.Printf("Computed contributions for %d author/component combinations", len(contributions))
 	}
 
 	return tx.Commit()
 }
 
 func matchPath(path, pattern string) bool {
-	pattern = strings.ReplaceAll(pattern, "**", "§§")
-	pattern = strings.ReplaceAll(pattern, "*", "[^/]*")
-	pattern = strings.ReplaceAll(pattern, "§§", ".*")
-	pattern = "^" + pattern + "$"
-
-	matched := false
-	for i := 0; i < len(path) && i < len(pattern); {
-		if i < len(pattern)-1 && pattern[i] == '.' && pattern[i+1] == '*' {
-			if i == len(pattern)-2 {
-				matched = true
-				break
-			}
-			matched = false
-			for j := i; j <= len(path); j++ {
-				if matchPath(path[j:], pattern[i+2:]) {
-					matched = true
-					break
-				}
-			}
-			break
-		} else if i < len(pattern)-6 && pattern[i:i+5] == "[^/]*" {
-			j := i
-			for j < len(path) && path[j] != '/' {
-				j++
-			}
-			if matchPath(path[j:], pattern[i+5:]) {
-				matched = true
-			}
-			break
-		} else if i < len(path) && i < len(pattern) && path[i] == pattern[i] {
-			i++
-			if i == len(path) && i == len(pattern) {
-				matched = true
-			}
-		} else {
-			break
-		}
-	}
-
-	if len(path) == 0 && len(pattern) == 0 {
-		matched = true
-	}
-
-	return matched || simpleMatch(path, pattern)
-}
-
-func simpleMatch(path, pattern string) bool {
-	match, _ := filepath.Match(pattern, path)
-	if match {
+	// Exact match
+	if path == pattern {
 		return true
 	}
 
-	parts := strings.Split(pattern, "/")
-	pathParts := strings.Split(path, "/")
-
+	// Handle ** (match any number of directories)
 	if strings.Contains(pattern, "**") {
-		for i := range parts {
-			if parts[i] == "**" {
-				before := strings.Join(parts[:i], "/")
-				after := strings.Join(parts[i+1:], "/")
+		parts := strings.Split(pattern, "**")
 
-				if before != "" {
-					beforeMatch, _ := filepath.Match(before, strings.Join(pathParts[:min(i, len(pathParts))], "/"))
-					if !beforeMatch {
-						return false
-					}
-				}
-
-				if after != "" {
-					for j := i; j <= len(pathParts); j++ {
-						afterPath := strings.Join(pathParts[j:], "/")
-						afterMatch, _ := filepath.Match(after, afterPath)
-						if afterMatch {
-							return true
-						}
-					}
-				} else {
-					return true
-				}
+		// Pattern: **/something
+		if len(parts) == 2 && parts[0] == "" {
+			suffix := strings.TrimPrefix(parts[1], "/")
+			if suffix == "" {
+				return true // Just "**" matches everything
 			}
+			return strings.HasSuffix(path, suffix) || strings.Contains(path, "/"+suffix)
 		}
+
+		// Pattern: something/**
+		if len(parts) == 2 && parts[1] == "" {
+			prefix := strings.TrimSuffix(parts[0], "/")
+			return strings.HasPrefix(path, prefix+"/") || path == prefix
+		}
+
+		// Pattern: prefix/**/suffix
+		if len(parts) == 2 {
+			prefix := strings.TrimSuffix(parts[0], "/")
+			suffix := strings.TrimPrefix(parts[1], "/")
+
+			if prefix != "" && !strings.HasPrefix(path, prefix) {
+				return false
+			}
+			if suffix != "" && !strings.HasSuffix(path, suffix) {
+				return false
+			}
+			return true
+		}
+	}
+
+	// Handle single * (match within a single directory level)
+	if strings.Contains(pattern, "*") && !strings.Contains(pattern, "**") {
+		matched, _ := filepath.Match(pattern, path)
+		return matched
 	}
 
 	return false
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+func simpleMatch(path, pattern string) bool {
+	match, _ := filepath.Match(pattern, path)
+	return match
 }

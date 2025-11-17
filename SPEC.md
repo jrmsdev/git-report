@@ -19,7 +19,7 @@ Generate contributor reports by analyzing git history across one or more reposit
 - **Language**: Go (for performance and single-binary distribution)
 - **Database**: SQLite3
 - **Query/Visualization**: Datasette (separate tool, consumes generated .db file)
-- **Dependencies**: Minimal external dependencies
+- **Dependencies**: Keep them minimal
 
 ## Configuration File
 
@@ -83,7 +83,7 @@ Path to output database file (default: `report.db`)
 ## Database Schema
 
 ### `repositories` table
-- `id` (INTEGER, PRIMARY KEY)
+- `id` (INTEGER, PRIMARY KEY AUTOINCREMENT)
 - `name` (TEXT, UNIQUE): repository name from config
 - `path` (TEXT): filesystem path
 
@@ -96,7 +96,7 @@ Path to output database file (default: `report.db`)
 - `message` (TEXT): commit message
 
 ### `file_changes` table
-- `id` (INTEGER, PRIMARY KEY)
+- `id` (INTEGER, PRIMARY KEY AUTOINCREMENT)
 - `commit_hash` (TEXT, FOREIGN KEY): references commits(hash)
 - `filepath` (TEXT): path to changed file
 - `additions` (INTEGER): lines added
@@ -104,13 +104,13 @@ Path to output database file (default: `report.db`)
 - `change_type` (TEXT): 'A' (added), 'M' (modified), 'D' (deleted), 'R' (renamed)
 
 ### `components` table
-- `id` (INTEGER, PRIMARY KEY)
+- `id` (INTEGER, PRIMARY KEY AUTOINCREMENT)
 - `name` (TEXT, UNIQUE): component name from config
 - `path_patterns` (TEXT): JSON array of path patterns
 
 ### `component_contributions` table
 Pre-computed statistics for efficient querying:
-- `id` (INTEGER, PRIMARY KEY)
+- `id` (INTEGER, PRIMARY KEY AUTOINCREMENT)
 - `component_id` (INTEGER, FOREIGN KEY): references components(id)
 - `repository_id` (INTEGER, FOREIGN KEY): references repositories(id)
 - `author` (TEXT)
@@ -119,68 +119,138 @@ Pre-computed statistics for efficient querying:
 - `total_additions` (INTEGER)
 - `total_deletions` (INTEGER)
 
+### Indexes
+- `idx_commits_repo` on commits(repository_id)
+- `idx_file_changes_commit` on file_changes(commit_hash)
+- `idx_component_contributions_component` on component_contributions(component_id)
+
 ## Git Log Integration
 
 ### Required git log flags
 - `--numstat`: get per-file addition/deletion statistics
-- `--name-status`: get file operation types (A/M/D/R)
-- `--pretty=format:...`: structured commit metadata output
-- Filters from config: `--since`, `--until`, `--author`, `--branch`
+- `--pretty=format:%H%x00%an%x00%ae%x00%ai%x00%s%x00`: structured commit metadata
+- Filters from config: `--since`, `--until`, `--author`, branch name
 
 ### Git log format
 ```
---pretty=format:%H%x00%an%x00%ae%x00%ai%x00%s%x00 --numstat --name-status
+--pretty=format:%H%x00%an%x00%ae%x00%ai%x00%s%x00 --numstat
 ```
-(Using null bytes `%x00` as field delimiters for reliable parsing)
+
+Fields separated by null bytes (`%x00`):
+- `%H`: commit hash
+- `%an`: author name
+- `%ae`: author email
+- `%ai`: author date (ISO 8601)
+- `%s`: subject (commit message)
+- `%x00`: null byte delimiter (final one ends the commit header line)
+
+### Git log output format
+Each commit consists of:
+1. Header line with null-byte-separated fields
+2. Followed by `--numstat` lines (one per file changed)
+3. Empty line separator between commits
+
+### Parsing implementation
+- Lines containing `\x00` are commit header lines
+- Lines after header are `--numstat` output until empty line or next commit
+- `--numstat` format: `<additions><tab><deletions><tab><filepath>`
+- Binary files: `-	-	<filepath>` (skipped)
+- Renames: `0	0	old/path => new/path` (takes new path, marks as 'R')
+- Change type inference:
+  - 'R': rename (detected by `=>` in filepath, specifically looking for pattern with spaces around `=>`)
+  - 'A': addition (additions > 0, deletions = 0)
+  - 'D': deletion (additions = 0, deletions > 0)
+  - 'M': modification (all other cases)
 
 ## CLI Interface
 
 ### Basic usage
 ```bash
-git-report config.yaml
+git-report [config.yaml]
 ```
 
+If no config file is specified, defaults to `report.yaml`.
+
 ### Optional flags
-- `-c, --config`: path to configuration file (default: `report.yaml`)
-- `-v, --verbose`: verbose output
+- `-c <path>`, `--config <path>`: path to configuration file
+- `-v`, `--verbose`: verbose output (shows repository processing and match counts)
 - `--dry-run`: validate config without generating report
+
+### Flag handling
+- Positional argument (first non-flag argument) overrides `-c`/`--config`
+- Either `-v` or `--verbose` enables verbose mode
+- Either `-c` or `--config` works
 
 ## Component Analysis
 
 ### At parse time
 1. Load component definitions from config
-2. Parse all commits and file changes
-3. Match file paths against component patterns for each repository
-4. Compute aggregated statistics per component
-5. Store in `component_contributions` table
+2. Insert components into database with JSON-encoded path patterns
+3. Parse all commits and file changes from each repository
+4. After parsing, compute component contributions by:
+   - Iterating through each component
+   - Parsing path patterns to extract repo name and path pattern
+   - Querying all file changes for matching repository
+   - Applying custom pattern matching to file paths
+   - Aggregating statistics (unique commits, additions, deletions) per author
 
 ### Path pattern matching
-- Support glob patterns: `**` (recursive directories), `*` (wildcard)
-- Implement custom glob matching using standard library (filepath.Match for simple patterns)
-- Match against repository-prefixed paths
-- Handle multiple patterns per component
+Custom `matchPath()` function supporting:
+- **Exact match**: path equals pattern exactly
+- **`**` patterns** (recursive directory matching):
+  - `**/something`: matches if path ends with "something" or contains "/something"
+  - `something/**`: matches if path starts with "something/" or equals "something"
+  - `prefix/**/suffix`: matches if path starts with prefix and ends with suffix
+  - `**` alone: matches everything
+- **`*` patterns** (single-level wildcard):
+  - Uses `filepath.Match()` for patterns containing `*` but not `**`
+  - Matches within single directory level only
+
+Pattern matching is case-sensitive and matches against full file paths relative to repository root.
+
+### Component contribution computation
+Implemented as an in-memory aggregation:
+- Creates a map keyed by (component_id, repository_id, email)
+- Tracks unique commit hashes per author using a set
+- Accumulates additions and deletions
+- Writes aggregated results to `component_contributions` table in a single transaction
 
 ## Implementation Notes
 
-### Go packages needed
+### Go packages used
 - `os/exec`: execute git commands
 - `database/sql` + `github.com/mattn/go-sqlite3`: SQLite operations
 - `gopkg.in/yaml.v3`: YAML config parsing
-- Standard library for path matching (custom glob implementation or filepath.Match)
 - `flag`: CLI argument parsing
+- `encoding/json`: JSON encoding for component path patterns
+- `bufio`: streaming line-by-line parsing
+- `path/filepath`: used in single-wildcard pattern matching
+- `strings`: string manipulation
+- `time`: timestamp parsing
 
-### Error handling considerations
-- Validate config file structure and required fields
-- Validate all repository paths exist and are git repositories
-- Handle git command failures gracefully
-- Ensure database writes are atomic/transactional
-- Validate parsed data before insertion
+### Error handling
+- Validates config file structure and required fields
+- Validates all repository paths exist and contain `.git` directory
+- Handles git command failures with descriptive errors
+- Database writes use transactions for atomicity
+- Git log parsing continues on individual line parse errors
+- Binary files (numstat showing `-	-`) are skipped
 
 ### Performance optimizations
-- Use transactions for bulk inserts
-- Prepared statements for repeated inserts
-- Stream processing for large repos (don't load all data into memory)
-- Parallel processing of multiple repositories
+- Transactions for bulk inserts
+- Prepared statements for commits and file_changes
+- Streaming line-by-line parsing (no loading full output into memory)
+- In-memory aggregation for component contributions
+- Single transaction per repository for commits/file_changes
+- Single transaction for all component contributions
+
+### Verbose output
+When `-v` or `--verbose` is enabled:
+- Shows output database path
+- Logs each repository as it's processed
+- Shows commit count per repository
+- Shows first 5 pattern matches per component/repo (helps debug patterns)
+- Shows total component contribution combinations computed
 
 ## Datasette Integration
 

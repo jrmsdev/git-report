@@ -1,6 +1,16 @@
 ---
 output: report.db
 
+filters:
+  authors:
+    - jrmsdev@gmail.com
+
 repositories:
   - name: git-report
     path: .
+
+components:
+  - name: docker
+    paths:
+      - git-report:Dockerfile
+      - git-report:docker/**
