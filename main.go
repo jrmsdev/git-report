@@ -62,22 +62,37 @@ type FileChange struct {
 	ChangeType string
 }
 
+type DatasetteMeta struct {
+	Title     string                  `json:"title,omitempty"`
+	Databases map[string]DatabaseMeta `json:"databases"`
+}
+
+type DatabaseMeta struct {
+	Tables map[string]TableMeta `json:"tables"`
+}
+
+type TableMeta struct {
+	Description string            `json:"description,omitempty"`
+	Hidden      bool              `json:"hidden,omitempty"`
+	Label       string            `json:"label_column,omitempty"`
+	Columns     map[string]string `json:"columns,omitempty"`
+}
+
 func main() {
-	configPath := flag.String("c", "report.yaml", "path to configuration file")
-	configFlag := flag.String("config", "", "path to configuration file")
-	verbose := flag.Bool("v", false, "verbose output")
-	verboseFlag := flag.Bool("verbose", false, "verbose output")
+	configPath := flag.String("config", "", "path to configuration file")
+	verbose := flag.Bool("verbose", false, "verbose output")
 	dryRun := flag.Bool("dry-run", false, "validate config without generating report")
 	flag.Parse()
 
-	if *configFlag != "" {
-		configPath = configFlag
-	}
-	isVerbose := *verbose || *verboseFlag
-
+	// Positional argument overrides -config flag
 	args := flag.Args()
 	if len(args) > 0 {
-		configPath = &args[0]
+		*configPath = args[0]
+	}
+
+	// Default to report.yaml if no config specified
+	if *configPath == "" {
+		*configPath = "report.yaml"
 	}
 
 	config, err := loadConfig(*configPath)
@@ -98,10 +113,6 @@ func main() {
 		config.Output = "report.db"
 	}
 
-	if isVerbose {
-		log.Printf("Generating report: %s", config.Output)
-	}
-
 	db, err := initDatabase(config.Output)
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
@@ -119,9 +130,6 @@ func main() {
 			log.Fatalf("Failed to insert repository %s: %v", repo.Name, err)
 		}
 		repoIDs[repo.Name] = id
-		if isVerbose {
-			log.Printf("Processing repository: %s", repo.Name)
-		}
 	}
 
 	if err := insertComponents(db, config.Components); err != nil {
@@ -129,16 +137,27 @@ func main() {
 	}
 
 	for _, repo := range config.Repositories {
-		if err := processRepository(db, repo, repoIDs[repo.Name], config.Filters, isVerbose); err != nil {
+		if *verbose {
+			log.Printf("Processing repository: %s", repo.Name)
+		}
+		if err := processRepository(db, repo, repoIDs[repo.Name], config.Filters, *verbose); err != nil {
 			log.Fatalf("Failed to process repository %s: %v", repo.Name, err)
 		}
 	}
 
-	if err := computeComponentContributions(db, config.Components, config.Repositories, repoIDs, isVerbose); err != nil {
+	if err := computeComponentContributions(db, config.Components, config.Repositories, repoIDs, *verbose); err != nil {
 		log.Fatalf("Failed to compute component contributions: %v", err)
 	}
 
-	if isVerbose {
+	// Generate Datasette metadata
+	metaFilename := strings.TrimSuffix(config.Output, ".db") + "-metadata.json"
+	if err := generateMetadata(config.Output, metaFilename); err != nil {
+		log.Printf("Warning: failed to generate metadata: %v", err)
+	} else if *verbose {
+		log.Printf("Generated metadata file: %s", metaFilename)
+	}
+
+	if *verbose {
 		log.Printf("Report generated successfully: %s", config.Output)
 	}
 }
@@ -178,6 +197,7 @@ func validateConfig(config *Config) error {
 }
 
 func initDatabase(path string) (*sql.DB, error) {
+	// Delete existing database file
 	os.Remove(path)
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
@@ -367,15 +387,17 @@ func parseGitLog(db *sql.DB, output string, repoID int, verbose bool) error {
 			continue
 		}
 
-		// Handle renames: "0	0	old.txt => new.txt"
-		// For renames, we want the new filename
-		filepath := parts[2]
+		// Reconstruct the filepath (everything after the first two fields)
+		filepath := strings.Join(parts[2:], " ")
 		changeType := "M"
 
-		if len(parts) >= 5 && parts[3] == "=>" {
-			// This is a rename
-			filepath = parts[4]
-			changeType = "R"
+		// Handle renames: "old.txt => new.txt"
+		if strings.Contains(filepath, " => ") {
+			renameParts := strings.Split(filepath, " => ")
+			if len(renameParts) == 2 {
+				filepath = renameParts[1]
+				changeType = "R"
+			}
 		} else {
 			// Determine change type from the stats
 			if adds > 0 && dels == 0 {
@@ -392,7 +414,7 @@ func parseGitLog(db *sql.DB, output string, repoID int, verbose bool) error {
 	}
 
 	if verbose && commitCount > 0 {
-		log.Printf("Processed %d commits", commitCount)
+		log.Printf("  Processed %d commits", commitCount)
 	}
 
 	return tx.Commit()
@@ -436,10 +458,6 @@ func computeComponentContributions(db *sql.DB, components []Component, repos []R
 				continue
 			}
 
-			if verbose {
-				log.Printf("Component '%s': checking repo '%s' with patterns: %v", comp.Name, repoName, repoPatterns)
-			}
-
 			rows, err := db.Query(`
 				SELECT c.hash, c.author, c.email, fc.additions, fc.deletions, fc.filepath
 				FROM commits c
@@ -450,7 +468,6 @@ func computeComponentContributions(db *sql.DB, components []Component, repos []R
 				return err
 			}
 
-			matchCount := 0
 			for rows.Next() {
 				var hash, author, email, filepath string
 				var additions, deletions int
@@ -463,10 +480,6 @@ func computeComponentContributions(db *sql.DB, components []Component, repos []R
 				for _, pattern := range repoPatterns {
 					if matchPath(filepath, pattern) {
 						matched = true
-						if verbose && matchCount < 5 {
-							log.Printf("  MATCH: %s matches pattern %s", filepath, pattern)
-							matchCount++
-						}
 						break
 					}
 				}
@@ -513,7 +526,7 @@ func computeComponentContributions(db *sql.DB, components []Component, repos []R
 	}
 
 	if verbose {
-		log.Printf("Computed contributions for %d author/component combinations", len(contributions))
+		log.Printf("Computed %d component contributions", len(contributions))
 	}
 
 	return tx.Commit()
@@ -568,7 +581,46 @@ func matchPath(path, pattern string) bool {
 	return false
 }
 
-func simpleMatch(path, pattern string) bool {
-	match, _ := filepath.Match(pattern, path)
-	return match
+func generateMetadata(dbPath string, outputPath string) error {
+	dbName := filepath.Base(dbPath)
+
+	meta := DatasetteMeta{
+		Title: "Git Contribution Report",
+		Databases: map[string]DatabaseMeta{
+			dbName: {
+				Tables: map[string]TableMeta{
+					"repositories": {
+						Description: "Repositories analyzed in this report",
+						Label:       "name",
+					},
+					"commits": {
+						Description: "Individual commits from all repositories",
+					},
+					"file_changes": {
+						Description: "File-level changes per commit",
+						Hidden:      true,
+					},
+					"components": {
+						Description: "Project components defined in config",
+						Label:       "name",
+					},
+					"component_contributions": {
+						Description: "Aggregated contributor statistics by component",
+						Columns: map[string]string{
+							"commit_count":    "Number of commits",
+							"total_additions": "Lines added",
+							"total_deletions": "Lines removed",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(outputPath, data, 0644)
 }

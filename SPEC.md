@@ -13,7 +13,8 @@ Generate contributor reports by analyzing git history across one or more reposit
 2. Execute `git log` commands for each repository with structured output
 3. Parse output into normalized data structures
 4. Write parsed data to SQLite database
-5. Output `.db` file for consumption by Datasette
+5. Generate Datasette metadata file
+6. Output `.db` file for consumption by Datasette
 
 ### Technology Stack
 - **Language**: Go (for performance and single-binary distribution)
@@ -155,9 +156,9 @@ Each commit consists of:
 - Lines after header are `--numstat` output until empty line or next commit
 - `--numstat` format: `<additions><tab><deletions><tab><filepath>`
 - Binary files: `-	-	<filepath>` (skipped)
-- Renames: `0	0	old/path => new/path` (takes new path, marks as 'R')
+- Renames: `<additions><tab><deletions><tab>old/path => new/path` (extract new path from string containing ` => `, marks as 'R')
 - Change type inference:
-  - 'R': rename (detected by `=>` in filepath, specifically looking for pattern with spaces around `=>`)
+  - 'R': rename (detected by ` => ` in filepath string)
   - 'A': addition (additions > 0, deletions = 0)
   - 'D': deletion (additions = 0, deletions > 0)
   - 'M': modification (all other cases)
@@ -172,14 +173,24 @@ git-report [config.yaml]
 If no config file is specified, defaults to `report.yaml`.
 
 ### Optional flags
-- `-c <path>`, `--config <path>`: path to configuration file
-- `-v`, `--verbose`: verbose output (shows repository processing and match counts)
-- `--dry-run`: validate config without generating report
+- `-config <path>`: path to configuration file
+- `-verbose`: verbose output
+- `-dry-run`: validate config without generating report
 
-### Flag handling
-- Positional argument (first non-flag argument) overrides `-c`/`--config`
-- Either `-v` or `--verbose` enables verbose mode
-- Either `-c` or `--config` works
+### Behavior
+- Positional argument (if provided) is used as config file path, overriding `-config` flag
+- Verbose mode shows: repository names as processed, commit counts per repository, and total component contribution count
+
+## Output Files
+
+### Database file
+- Filename specified in config `output` field (default: `report.db`)
+- If file exists, it is deleted and recreated
+
+### Metadata file
+- Automatically generated as `<output-basename>-metadata.json`
+- Contains Datasette-specific metadata for improved UI experience
+- Includes table descriptions, column labels, and display preferences
 
 ## Component Analysis
 
@@ -222,7 +233,7 @@ Implemented as an in-memory aggregation:
 - `database/sql` + `github.com/mattn/go-sqlite3`: SQLite operations
 - `gopkg.in/yaml.v3`: YAML config parsing
 - `flag`: CLI argument parsing
-- `encoding/json`: JSON encoding for component path patterns
+- `encoding/json`: JSON encoding for component path patterns and metadata
 - `bufio`: streaming line-by-line parsing
 - `path/filepath`: used in single-wildcard pattern matching
 - `strings`: string manipulation
@@ -245,23 +256,25 @@ Implemented as an in-memory aggregation:
 - Single transaction for all component contributions
 
 ### Verbose output
-When `-v` or `--verbose` is enabled:
-- Shows output database path
-- Logs each repository as it's processed
-- Shows commit count per repository
-- Shows first 5 pattern matches per component/repo (helps debug patterns)
-- Shows total component contribution combinations computed
+When `-verbose` is enabled:
+- Log each repository name as it's processed
+- Show commit count after processing each repository
+- Show total component contribution count after computation
 
 ## Datasette Integration
 
-### No direct integration needed
-- Tool outputs standalone `.db` file
-- User runs separately: `datasette report.db`
-- Datasette provides:
-  - Web-based query interface
-  - JSON API
-  - Export capabilities (CSV, JSON)
-  - Plugin ecosystem for custom visualizations
+### Generated files
+- `.db` file: SQLite database with all report data
+- `-metadata.json` file: Datasette metadata for enhanced UI
+
+### Usage
+User runs separately: `datasette report.db -m report-metadata.json`
+
+Datasette provides:
+- Web-based query interface
+- JSON API
+- Export capabilities (CSV, JSON)
+- Plugin ecosystem for custom visualizations
 
 ### Example Datasette queries
 ```sql
@@ -296,7 +309,6 @@ JOIN components c ON cc.component_id = c.id;
 ```
 
 ## Future Enhancements
-- Datasette metadata.json generation for UI customization
 - Branch comparison capabilities
 - Merge commit handling options
 - Component dependency visualization

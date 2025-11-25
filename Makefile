@@ -3,7 +3,7 @@ all: build-deps build
 
 .PHONY: clean
 clean:
-	@rm -rf build main git-report
+	@rm -vrf *.log *.db build main git-report
 
 .PHONY: build-deps
 build-deps:
