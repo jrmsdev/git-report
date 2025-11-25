@@ -6,9 +6,29 @@ A command-line tool written in Go that parses `git log` output from multiple rep
 ## Purpose
 Generate contributor reports by analyzing git history across one or more repositories, including commit metadata and file change patterns to track contributions to specific components of a project.
 
+## Implementation Structure
+
+### Code Organization
+The implementation is split across multiple Go files for maintainability:
+
+- **main.go**: CLI orchestration, flag parsing, main flow control
+- **config.go**: Configuration loading, validation, and type definitions
+- **database.go**: Database initialization, schema creation, data insertion
+- **git.go**: Git command execution and log parsing
+- **components.go**: Component contribution computation and path matching
+- **metadata.go**: Datasette metadata file generation
+
+### Working with this Specification
+When modifying functionality:
+1. Identify the relevant section(s) in this spec
+2. Reference the "Implementation File" notation to know which Go file(s) to attach
+3. Update both spec and implementation together to keep them synchronized
+
 ## Architecture
 
 ### Core Flow
+**Implementation File: main.go**
+
 1. Read configuration file specifying repositories and report parameters
 2. Execute `git log` commands for each repository with structured output
 3. Parse output into normalized data structures
@@ -23,6 +43,7 @@ Generate contributor reports by analyzing git history across one or more reposit
 - **Dependencies**: Keep them minimal
 
 ## Configuration File
+**Implementation File: config.go**
 
 ### Format
 YAML configuration file specifying repositories and report parameters.
@@ -82,6 +103,7 @@ Path to output database file (default: `report.db`)
   - Examples: `backend:src/api/**`, `frontend:*.ts`
 
 ## Database Schema
+**Implementation File: database.go**
 
 ### `repositories` table
 - `id` (INTEGER, PRIMARY KEY AUTOINCREMENT)
@@ -126,6 +148,7 @@ Pre-computed statistics for efficient querying:
 - `idx_component_contributions_component` on component_contributions(component_id)
 
 ## Git Log Integration
+**Implementation File: git.go**
 
 ### Required git log flags
 - `--numstat`: get per-file addition/deletion statistics
@@ -164,6 +187,7 @@ Each commit consists of:
   - 'M': modification (all other cases)
 
 ## CLI Interface
+**Implementation File: main.go**
 
 ### Basic usage
 ```bash
@@ -182,6 +206,7 @@ If no config file is specified, defaults to `report.yaml`.
 - Verbose mode shows: repository names as processed, commit counts per repository, and total component contribution count
 
 ## Output Files
+**Implementation Files: main.go, metadata.go**
 
 ### Database file
 - Filename specified in config `output` field (default: `report.db`)
@@ -193,6 +218,7 @@ If no config file is specified, defaults to `report.yaml`.
 - Includes table descriptions, column labels, and display preferences
 
 ## Component Analysis
+**Implementation File: components.go**
 
 ### At parse time
 1. Load component definitions from config
@@ -229,17 +255,19 @@ Implemented as an in-memory aggregation:
 ## Implementation Notes
 
 ### Go packages used
-- `os/exec`: execute git commands
-- `database/sql` + `github.com/mattn/go-sqlite3`: SQLite operations
-- `gopkg.in/yaml.v3`: YAML config parsing
-- `flag`: CLI argument parsing
-- `encoding/json`: JSON encoding for component path patterns and metadata
-- `bufio`: streaming line-by-line parsing
-- `path/filepath`: used in single-wildcard pattern matching
-- `strings`: string manipulation
-- `time`: timestamp parsing
+**Across all files:**
+- `os/exec`: execute git commands (git.go)
+- `database/sql` + `github.com/mattn/go-sqlite3`: SQLite operations (database.go, git.go, components.go)
+- `gopkg.in/yaml.v3`: YAML config parsing (config.go)
+- `flag`: CLI argument parsing (main.go)
+- `encoding/json`: JSON encoding for component path patterns and metadata (database.go, metadata.go)
+- `bufio`: streaming line-by-line parsing (git.go)
+- `path/filepath`: used in single-wildcard pattern matching (config.go, components.go, metadata.go)
+- `strings`: string manipulation (all files)
+- `time`: timestamp parsing (git.go)
 
 ### Error handling
+**Relevant files: main.go, config.go, git.go, database.go, components.go**
 - Validates config file structure and required fields
 - Validates all repository paths exist and contain `.git` directory
 - Handles git command failures with descriptive errors
@@ -248,6 +276,7 @@ Implemented as an in-memory aggregation:
 - Binary files (numstat showing `-	-`) are skipped
 
 ### Performance optimizations
+**Relevant files: git.go, components.go, database.go**
 - Transactions for bulk inserts
 - Prepared statements for commits and file_changes
 - Streaming line-by-line parsing (no loading full output into memory)
@@ -256,12 +285,15 @@ Implemented as an in-memory aggregation:
 - Single transaction for all component contributions
 
 ### Verbose output
+**Relevant files: main.go, git.go, components.go**
+
 When `-verbose` is enabled:
 - Log each repository name as it's processed
 - Show commit count after processing each repository
 - Show total component contribution count after computation
 
 ## Datasette Integration
+**Implementation File: metadata.go**
 
 ### Generated files
 - `.db` file: SQLite database with all report data
