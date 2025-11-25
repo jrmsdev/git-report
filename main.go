@@ -7,7 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"strings"
+	"os"
+	"path/filepath"
 )
 
 func main() {
@@ -42,10 +43,12 @@ func main() {
 	}
 
 	if config.Output == "" {
-		config.Output = "report.db"
+		config.Output = "report.md"
 	}
 
-	db, err := initDatabase(config.Output)
+	// Use a hidden database file for internal processing
+	dbPath := filepath.Join(filepath.Dir(config.Output), "."+filepath.Base(config.Output)+".db")
+	db, err := initDatabase(dbPath)
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -81,13 +84,16 @@ func main() {
 		log.Fatalf("Failed to compute component contributions: %v", err)
 	}
 
-	// Generate Datasette metadata
-	metaFilename := strings.TrimSuffix(config.Output, ".db") + "-metadata.json"
-	if err := generateMetadata(config.Output, metaFilename); err != nil {
-		log.Printf("Warning: failed to generate metadata: %v", err)
-	} else if *verbose {
-		log.Printf("Generated metadata file: %s", metaFilename)
+	// Generate markdown report
+	if *verbose {
+		log.Printf("Generating report: %s", config.Output)
 	}
+	if err := generateReport(db, config, config.Output); err != nil {
+		log.Fatalf("Failed to generate report: %v", err)
+	}
+
+	// Clean up database file
+	os.Remove(dbPath)
 
 	if *verbose {
 		log.Printf("Report generated successfully: %s", config.Output)

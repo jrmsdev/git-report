@@ -1,7 +1,7 @@
 # git-report: Git Repository Contribution Report Tool
 
 ## Overview
-A command-line tool written in Go that parses `git log` output from multiple repositories and generates a SQLite database for querying project contributions via Datasette.
+A command-line tool written in Go that parses `git log` output from multiple repositories and generates a markdown report of project contributions.
 
 ## Purpose
 Generate contributor reports by analyzing git history across one or more repositories, including commit metadata and file change patterns to track contributions to specific components of a project.
@@ -16,7 +16,7 @@ The implementation is split across multiple Go files for maintainability:
 - **database.go**: Database initialization, schema creation, data insertion
 - **git.go**: Git command execution and log parsing
 - **components.go**: Component contribution computation and path matching
-- **metadata.go**: Datasette metadata file generation
+- **report.go**: Markdown report generation [TO BE IMPLEMENTED]
 
 ### Working with this Specification
 When modifying functionality:
@@ -32,14 +32,14 @@ When modifying functionality:
 1. Read configuration file specifying repositories and report parameters
 2. Execute `git log` commands for each repository with structured output
 3. Parse output into normalized data structures
-4. Write parsed data to SQLite database
-5. Generate Datasette metadata file
-6. Output `.db` file for consumption by Datasette
+4. Write parsed data to SQLite database (internal processing artifact)
+5. Query database and generate markdown report
+6. Output `.md` file with contribution analysis
 
 ### Technology Stack
 - **Language**: Go (for performance and single-binary distribution)
-- **Database**: SQLite3
-- **Query/Visualization**: Datasette (separate tool, consumes generated .db file)
+- **Database**: SQLite3 (internal artifact for processing)
+- **Output**: Markdown report file
 - **Dependencies**: Keep them minimal
 
 ## Configuration File
@@ -50,7 +50,7 @@ YAML configuration file specifying repositories and report parameters.
 
 ### Example (YAML)
 ```yaml
-output: project-report.db
+output: project-report.md
 
 repositories:
   - path: /path/to/backend-repo
@@ -84,7 +84,7 @@ components:
 ### Configuration Fields
 
 #### `output` (string)
-Path to output database file (default: `report.db`)
+Path to output markdown report file (default: `report.md`)
 
 #### `repositories` (array)
 - `path` (string, required): absolute or relative path to git repository
@@ -104,6 +104,8 @@ Path to output database file (default: `report.db`)
 
 ## Database Schema
 **Implementation File: database.go**
+
+The SQLite database is an internal processing artifact (generated as `.report.db` in temp directory or alongside output file).
 
 ### `repositories` table
 - `id` (INTEGER, PRIMARY KEY AUTOINCREMENT)
@@ -206,16 +208,58 @@ If no config file is specified, defaults to `report.yaml`.
 - Verbose mode shows: repository names as processed, commit counts per repository, and total component contribution count
 
 ## Output Files
-**Implementation Files: main.go, metadata.go**
+**Implementation Files: main.go, report.go**
 
-### Database file
-- Filename specified in config `output` field (default: `report.db`)
-- If file exists, it is deleted and recreated
+### Markdown report file
+- Filename specified in config `output` field (default: `report.md`)
+- If file exists, it is overwritten
+- Contains formatted contribution analysis
 
-### Metadata file
-- Automatically generated as `<output-basename>-metadata.json`
-- Contains Datasette-specific metadata for improved UI experience
-- Includes table descriptions, column labels, and display preferences
+### Database file (internal)
+- Hidden/temporary artifact used for processing
+- Not intended for direct user consumption
+- May be cleaned up after report generation
+
+## Markdown Report Format
+**Implementation File: report.go [TO BE IMPLEMENTED]**
+
+The generated markdown report includes:
+
+1. **Report header**: Title, date range, repositories analyzed
+2. **Overall statistics**: Total commits, contributors, lines changed
+3. **Top contributors**: Ranked by commits across all repositories
+4. **Repository breakdown**: Per-repository contribution statistics
+5. **Component analysis** (if configured): Contributions by component
+6. **Detailed contributor tables**: Per-author statistics with additions/deletions
+
+Example structure:
+```markdown
+# Git Contribution Report
+
+**Period**: 2024-01-01 to 2025-12-31  
+**Repositories**: backend, frontend
+
+## Summary
+
+- Total commits: 1,234
+- Contributors: 15
+- Lines added: 45,678
+- Lines deleted: 12,345
+
+## Top Contributors
+
+| Author | Commits | Additions | Deletions |
+|--------|---------|-----------|-----------|
+| alice@example.com | 456 | 23,456 | 5,678 |
+| bob@example.com | 345 | 15,432 | 4,321 |
+
+## Component Contributions
+
+### API
+| Author | Commits | Additions | Deletions |
+|--------|---------|-----------|-----------|
+...
+```
 
 ## Component Analysis
 **Implementation File: components.go**
@@ -257,17 +301,19 @@ Implemented as an in-memory aggregation:
 ### Go packages used
 **Across all files:**
 - `os/exec`: execute git commands (git.go)
-- `database/sql` + `github.com/mattn/go-sqlite3`: SQLite operations (database.go, git.go, components.go)
+- `database/sql` + `github.com/mattn/go-sqlite3`: SQLite operations (database.go, git.go, components.go, report.go)
 - `gopkg.in/yaml.v3`: YAML config parsing (config.go)
 - `flag`: CLI argument parsing (main.go)
-- `encoding/json`: JSON encoding for component path patterns and metadata (database.go, metadata.go)
+- `encoding/json`: JSON encoding for component path patterns (database.go)
 - `bufio`: streaming line-by-line parsing (git.go)
-- `path/filepath`: used in single-wildcard pattern matching (config.go, components.go, metadata.go)
+- `path/filepath`: used in single-wildcard pattern matching (config.go, components.go)
 - `strings`: string manipulation (all files)
 - `time`: timestamp parsing (git.go)
+- `os`: file operations (config.go, database.go, report.go)
+- `fmt`: formatting output (report.go)
 
 ### Error handling
-**Relevant files: main.go, config.go, git.go, database.go, components.go**
+**Relevant files: main.go, config.go, git.go, database.go, components.go, report.go**
 - Validates config file structure and required fields
 - Validates all repository paths exist and contain `.git` directory
 - Handles git command failures with descriptive errors
@@ -285,63 +331,18 @@ Implemented as an in-memory aggregation:
 - Single transaction for all component contributions
 
 ### Verbose output
-**Relevant files: main.go, git.go, components.go**
+**Relevant files: main.go, git.go, components.go, report.go**
 
 When `-verbose` is enabled:
 - Log each repository name as it's processed
 - Show commit count after processing each repository
 - Show total component contribution count after computation
-
-## Datasette Integration
-**Implementation File: metadata.go**
-
-### Generated files
-- `.db` file: SQLite database with all report data
-- `-metadata.json` file: Datasette metadata for enhanced UI
-
-### Usage
-User runs separately: `datasette report.db -m report-metadata.json`
-
-Datasette provides:
-- Web-based query interface
-- JSON API
-- Export capabilities (CSV, JSON)
-- Plugin ecosystem for custom visualizations
-
-### Example Datasette queries
-```sql
--- Top contributors by component
-SELECT 
-  c.name as component,
-  cc.author,
-  cc.commit_count,
-  cc.total_additions,
-  cc.total_deletions
-FROM component_contributions cc
-JOIN components c ON cc.component_id = c.id
-ORDER BY cc.commit_count DESC;
-
--- Cross-repository contributor activity
-SELECT 
-  r.name as repository,
-  c.author,
-  COUNT(*) as commits
-FROM commits c
-JOIN repositories r ON c.repository_id = r.id
-GROUP BY r.name, c.author
-ORDER BY commits DESC;
-
--- Component ownership analysis
-SELECT 
-  component,
-  author,
-  ROUND(100.0 * commit_count / SUM(commit_count) OVER (PARTITION BY component), 2) as percentage
-FROM component_contributions cc
-JOIN components c ON cc.component_id = c.id;
-```
+- Show report generation progress
 
 ## Future Enhancements
 - Branch comparison capabilities
 - Merge commit handling options
 - Component dependency visualization
 - Time-series analysis support
+- Multiple output formats (HTML, JSON)
+- Interactive charts/graphs in HTML output
