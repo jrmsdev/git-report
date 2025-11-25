@@ -11,7 +11,7 @@ ENV HOME=/root
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-ENV APT_INSTALL='bash openssl ca-certificates media-types less wget golang python3 python3-venv git build-essential'
+ENV APT_INSTALL='bash openssl ca-certificates media-types less wget golang git build-essential'
 
 RUN apt-get clean \
 	&& apt-get update -yy \
@@ -24,9 +24,6 @@ RUN apt-get clean \
 		/var/cache/apt/*cache.bin
 
 RUN python3 -m venv /usr/local/venv
-
-RUN /usr/local/venv/bin/pip install datasette
-RUN ln -vsf /usr/local/venv/bin/datasette /usr/local/bin/datasette
 
 ARG DEVEL_UID=1000
 ARG DEVEL_GID=1000
@@ -53,13 +50,10 @@ ENV USER=devel
 ENV HOME=/home/devel
 
 RUN go version
-RUN python3 --version
-
-RUN datasette --version
 
 WORKDIR /opt/src
 
-COPY --chmod=0644 go.mod go.sum Makefile main.go /opt/src
+COPY --chmod=0644 go.mod go.sum Makefile *.go /opt/src
 RUN make install
 
 WORKDIR /home/devel
