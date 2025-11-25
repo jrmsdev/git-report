@@ -1,5 +1,5 @@
 ---
-output: build/report.db
+output: build/report.md
 
 filters:
   authors:
