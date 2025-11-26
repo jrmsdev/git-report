@@ -16,7 +16,8 @@ The implementation is split across multiple Go files for maintainability:
 - **database.go**: Database initialization, schema creation, data insertion
 - **git.go**: Git command execution and log parsing
 - **components.go**: Component contribution computation and path matching
-- **report.go**: Markdown report generation [TO BE IMPLEMENTED]
+- **report.go**: Markdown report generation
+- **httpd.go**: HTTP server for serving generated reports
 
 ### Working with this Specification
 When modifying functionality:
@@ -35,11 +36,14 @@ When modifying functionality:
 4. Write parsed data to SQLite database (internal processing artifact)
 5. Query database and generate markdown report
 6. Output `.md` file with contribution analysis
+7. Optionally start HTTP server to serve the report
 
 ### Technology Stack
 - **Language**: Go (for performance and single-binary distribution)
 - **Database**: SQLite3 (internal artifact for processing)
 - **Output**: Markdown report file
+- **HTTP Server**: net/http (for optional report serving)
+- **Markdown Rendering**: blackfriday/v2 (for HTML conversion)
 - **Dependencies**: Keep them minimal
 
 ## Configuration File
@@ -202,10 +206,24 @@ If no config file is specified, defaults to `report.yaml`.
 - `-config <path>`: path to configuration file
 - `-verbose`: verbose output
 - `-dry-run`: validate config without generating report
+- `-http <address>`: start HTTP server at specified address (e.g., `:8045` or `127.0.0.1:8045`)
+
+### HTTP Server Mode
+**Implementation File: httpd.go**
+
+When the `-http` flag is provided:
+- The tool skips report generation and starts an HTTP server instead
+- Serves the existing report file specified in config's `output` field
+- The report is rendered as HTML at the root URL (`/`)
+- Address format: `host:port` or `:port` (defaults to `127.0.0.1` if host omitted)
+- Example: `git-report -http :8045` or `git-report -http 127.0.0.1:8045`
+- The markdown file is converted to HTML using blackfriday/v2
+- Server runs until interrupted (Ctrl+C)
 
 ### Behavior
 - Positional argument (if provided) is used as config file path, overriding `-config` flag
-- Verbose mode shows: repository names as processed, commit counts per repository, and total component contribution count
+- Verbose mode shows: repository names as processed, commit counts per repository, total component contribution count, and HTTP server startup info
+- HTTP mode requires that the report file already exists
 
 ## Output Files
 **Implementation Files: main.go, report.go**
@@ -221,7 +239,7 @@ If no config file is specified, defaults to `report.yaml`.
 - May be cleaned up after report generation
 
 ## Markdown Report Format
-**Implementation File: report.go [TO BE IMPLEMENTED]**
+**Implementation File: report.go**
 
 The generated markdown report includes:
 
@@ -309,17 +327,20 @@ Implemented as an in-memory aggregation:
 - `path/filepath`: used in single-wildcard pattern matching (config.go, components.go)
 - `strings`: string manipulation (all files)
 - `time`: timestamp parsing (git.go)
-- `os`: file operations (config.go, database.go, report.go)
-- `fmt`: formatting output (report.go)
+- `os`: file operations (config.go, database.go, report.go, httpd.go)
+- `fmt`: formatting output (report.go, httpd.go)
+- `net/http`: HTTP server (httpd.go)
+- `github.com/russross/blackfriday/v2`: markdown to HTML conversion (httpd.go)
 
 ### Error handling
-**Relevant files: main.go, config.go, git.go, database.go, components.go, report.go**
+**Relevant files: main.go, config.go, git.go, database.go, components.go, report.go, httpd.go**
 - Validates config file structure and required fields
 - Validates all repository paths exist and contain `.git` directory
 - Handles git command failures with descriptive errors
 - Database writes use transactions for atomicity
 - Git log parsing continues on individual line parse errors
 - Binary files (numstat showing `-	-`) are skipped
+- HTTP server validates address format and report file existence
 
 ### Performance optimizations
 **Relevant files: git.go, components.go, database.go**
@@ -331,13 +352,14 @@ Implemented as an in-memory aggregation:
 - Single transaction for all component contributions
 
 ### Verbose output
-**Relevant files: main.go, git.go, components.go, report.go**
+**Relevant files: main.go, git.go, components.go, report.go, httpd.go**
 
 When `-verbose` is enabled:
 - Log each repository name as it's processed
 - Show commit count after processing each repository
 - Show total component contribution count after computation
 - Show report generation progress
+- Show HTTP server startup information (address and report path)
 
 ## Future Enhancements
 - Branch comparison capabilities
@@ -346,3 +368,5 @@ When `-verbose` is enabled:
 - Time-series analysis support
 - Multiple output formats (HTML, JSON)
 - Interactive charts/graphs in HTML output
+- Live report refresh in HTTP server mode
+- WebSocket support for real-time updates

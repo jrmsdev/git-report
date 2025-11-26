@@ -15,6 +15,7 @@ func main() {
 	configPath := flag.String("config", "", "path to configuration file")
 	verbose := flag.Bool("verbose", false, "verbose output")
 	dryRun := flag.Bool("dry-run", false, "validate config without generating report")
+	httpAddr := flag.String("http", "", "start HTTP server at specified address (e.g., :8045 or 127.0.0.1:8045)")
 	flag.Parse()
 
 	// Positional argument overrides -config flag
@@ -44,6 +45,14 @@ func main() {
 
 	if config.Output == "" {
 		config.Output = "report.md"
+	}
+
+	// If HTTP server mode is requested, start server and exit
+	if *httpAddr != "" {
+		if err := startHTTPServer(*httpAddr, config.Output, *verbose); err != nil {
+			log.Fatalf("Failed to start HTTP server: %v", err)
+		}
+		return
 	}
 
 	// Use a hidden database file for internal processing
