@@ -1,6 +1,10 @@
 .PHONY: all
 all: build-deps build
 
+.PHONY: fmt
+fmt:
+	@go fmt
+
 .PHONY: clean
 clean:
 	@rm -vrf *.log *.db build main git-report

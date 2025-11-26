@@ -38,7 +38,11 @@ func startHTTPServer(addr string, reportPath string, verbose bool) error {
 
 		html := blackfriday.Run(content)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+		// Write complete HTML document
+		w.Write([]byte("<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>Report</title>\n</head>\n<body>\n"))
 		w.Write(html)
+		w.Write([]byte("\n</body>\n</html>"))
 	})
 
 	if verbose {
