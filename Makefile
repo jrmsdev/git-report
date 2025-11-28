@@ -17,13 +17,13 @@ build-deps:
 .PHONY: build
 build: build/git-report
 
-build/git-report: main.go
-	@mkdir -vp build
-	@CGO_ENABLED=1 go build -o build/git-report main.go
+build/git-report: *.go
+	@mkdir -p build
+	@CGO_ENABLED=1 go build -o build/git-report -ldflags '-s -w'
 
 .PHONY: install
 install:
-	@CGO_ENABLED=1 go install
+	@CGO_ENABLED=1 go install -ldflags '-s -w'
 
 .PHONY: run
 run: build
